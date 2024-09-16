@@ -23,20 +23,28 @@ function createCSV(data, fileName = 'data.csv') {
     )
   ].join('\n'); // Junta todas as linhas com quebras de linha
 
-  // Cria o arquivo CSV como um Blob e simula o clique para fazer download
-  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-  const link = document.createElement('a');
-  link.href = URL.createObjectURL(blob);
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click(); // Faz o download do arquivo
-  document.body.removeChild(link);
+  try {
+    // Cria o arquivo CSV como um Blob e simula o clique para fazer download
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = fileName;
+    document.body.appendChild(link);
+    link.click(); // Faz o download do arquivo
+    document.body.removeChild(link);
+  } catch (error) {
+    console.error('Erro ao criar ou baixar o CSV:', error);
+  }
 }
 
 // Função que realiza o scroll na página para carregar mais posts
 async function scrollDown() {
-  window.scrollBy(0, 800); // Rola a página para baixo
-  await new Promise(resolve => setTimeout(resolve, 1000)); // Espera 1 segundo antes de continuar
+  try {
+    window.scrollBy(0, 800); // Rola a página para baixo
+    await new Promise(resolve => setTimeout(resolve, 2000)); // Espera 2 segundos antes de continuar
+  } catch (error) {
+    console.error('Erro ao rolar a página:', error);
+  }
 }
 
 // Função que extrai o e-mail de um texto
@@ -49,7 +57,16 @@ function getEmailFromText(text) {
 function clickOnComments(post) {
   const element = post.querySelector('[data-visualcompletion="ignore-dynamic"]');
   // Tenta clicar na sétima div dentro do elemento para expandir os comentários
-  element?.querySelectorAll('div')[7]?.click();
+  if (element) {
+    const commentButton = element.querySelectorAll('div')[7];
+    if (commentButton) {
+      commentButton.click();
+    } else {
+      console.error('Botão de comentários não encontrado.');
+    }
+  } else {
+    console.error('Elemento para expandir comentários não encontrado.');
+  }
 }
 
 // Função que percorre um elemento HTML recursivamente para obter o texto
@@ -62,78 +79,103 @@ function traverseElementsToGetText(element) {
 
 // Função que seleciona todos os posts no feed
 function getAllPosts() {
-  // Seleciona todos os posts que contenham um elemento <h3> (geralmente o nome do autor)
-  return [...document.querySelectorAll('div[role=feed] > div')].filter(post => post.querySelector('h3'));
+  // Seleciona todos os posts que contenham um elemento <h2>, <h3> ou <span> (para nomes de autores)
+  return [...document.querySelectorAll('div[role=feed] > div')].filter(post => 
+    post.querySelector('h2') || post.querySelector('h3') || post.querySelector('span')
+  );
 }
 
 // Função que formata os comentários de um post
 function formatTopLevelComments(postId, topLevelComments = []) {
-  return topLevelComments.map(c => {
-    const { id: commentId, body: { text }, author: { name, id } } = c?.comment || {};
-    // Formata os dados do comentário para ser usado no CSV
-    return {
-      id: commentId || 'null',
-      commentId: commentId || 'null',
-      postId: postId || 'null',
-      commentText: text || 'null',
-      commentAuthorName: name || 'null',
-      commentAuthorId: id || 'null',
-      email: getEmailFromText(text),
-      firstName: name?.split(' ')[0] || 'null',
-      lastName: name?.split(' ')[1] || 'null',
-    };
-  });
+  try {
+    return topLevelComments.map(c => {
+      const { id: commentId, body: { text }, author: { name, id } } = c?.comment || {};
+      // Formata os dados do comentário para ser usado no CSV
+      return {
+        id: commentId || 'null',
+        commentId: commentId || 'null',
+        postId: postId || 'null',
+        commentText: text || 'null',
+        commentAuthorName: name || 'null',
+        commentAuthorId: id || 'null',
+        email: getEmailFromText(text),
+        firstName: name?.split(' ')[0] || 'null',
+        lastName: name?.split(' ')[1] || 'null',
+      };
+    });
+  } catch (error) {
+    console.error('Erro ao formatar comentários:', error);
+    return []; // Retorna um array vazio em caso de erro
+  }
 }
 
 // Função que extrai dados de um post e seus comentários a partir de um JSON
 function parseFirstLevelJson(json) {
-  // Extrai o autor do post
-  const actor =
-    json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
-      ?.story?.comet_sections?.context_layout?.story?.comet_sections
-      ?.actor_photo?.story?.actors?.[0];
+  try {
+    // Extrai o autor do post
+    const actor =
+      json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
+        ?.story?.comet_sections?.context_layout?.story?.comet_sections
+        ?.actor_photo?.story?.actors?.[0];
 
-  // Extrai o texto do post
-  const postText =
-    json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
-      ?.story?.comet_sections?.message_container?.story?.message?.text;
-  
-  // Extrai o ID do post
-  const postId =
-    json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
-      ?.story?.post_id;
+    // Extrai o texto do post
+    const postText =
+      json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
+        ?.story?.comet_sections?.message_container?.story?.message?.text;
     
-  // Formata os dados do post
-  const post = {
-    id: postId || 'null',
-    postId: postId || 'null',
-    postText: postText || 'null',
-    postAuthor: actor?.name || 'null',
-    postAuthorId: actor?.id || 'null',
-    postAuthorUrl: actor?.url || 'null',
-    email: getEmailFromText(postText) || 'null',
-    firstName: actor?.name?.split(' ')?.[0] || 'null',
-    lastName: actor?.name?.split(' ')?.[1] || 'null',
-  };
+    // Extrai o ID do post
+    const postId =
+      json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
+        ?.story?.post_id;
+      
+    // Formata os dados do post
+    const post = {
+      id: postId || 'null',
+      postId: postId || 'null',
+      postText: postText || 'null',
+      postAuthor: actor?.name || 'null',
+      postAuthorId: actor?.id || 'null',
+      postAuthorUrl: actor?.url || 'null',
+      email: getEmailFromText(postText) || 'null',
+      firstName: actor?.name?.split(' ')?.[0] || 'null',
+      lastName: actor?.name?.split(' ')?.[1] || 'null',
+    };
 
-  // Formata os comentários do post
-  const topLevelComments = formatTopLevelComments(
-    postId,
-    json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
-      ?.story?.feedback_context?.interesting_top_level_comments,
-  );
+    // Formata os comentários do post
+    const topLevelComments = formatTopLevelComments(
+      postId,
+      json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
+        ?.story?.feedback_context?.interesting_top_level_comments,
+    );
 
-  console.log('Post extraído:', post); // Log para ver o post extraído
-  console.log('Comentários extraídos:', topLevelComments); // Log para ver os comentários extraídos
-  
-  return { post, topLevelComments }; // Retorna o post e seus comentários
+    console.log('Post extraído:', post); // Log para ver o post extraído
+    console.log('Comentários extraídos:', topLevelComments); // Log para ver os comentários extraídos
+    
+    return { post, topLevelComments }; // Retorna o post e seus comentários
+  } catch (error) {
+    console.error('Erro ao processar o JSON:', error);
+    return { post: {}, topLevelComments: [] }; // Retorna valores vazios em caso de erro
+  }
 }
 
 // Função que adiciona comentários ao array allContent, sem duplicar
 function addCommentsToAllContent(comments = []) {
-  comments.forEach(c => {
-    if (!allContent.some(f => f.commentId === c.commentId)) allContent.push(c);
-  });
+  try {
+    comments.forEach(c => {
+      if (validateData(c) && !allContent.some(f => f.commentId === c.commentId)) {
+        allContent.push(c);
+      } else {
+        console.error('Dados inválidos ou comentário duplicado:', c);
+      }
+    });
+  } catch (error) {
+    console.error('Erro ao adicionar comentários ao conteúdo:', error);
+  }
+}
+
+// Função que valida os dados
+function validateData(data) {
+  return data && typeof data === 'object' && data.id && data.postId;
 }
 
 // Função que intercepta as requisições de rede e coleta os dados
@@ -149,10 +191,9 @@ function interceptRequests() {
     this.send = function (data) {
       oldXHRSend.apply(this, arguments);
       this.addEventListener('load', function () {
-        const payload = this.responseText;
-        const lines = payload.split('\n');
         try {
-          // Tenta interpretar a resposta como JSON
+          const payload = this.responseText;
+          const lines = payload.split('\n');
           const responseData = JSON.parse(lines[0]);
 
           // Extrai o post e os comentários do JSON
@@ -160,7 +201,7 @@ function interceptRequests() {
           allContent.push(post); // Adiciona o post ao array allContent
           addCommentsToAllContent(topLevelComments); // Adiciona os comentários
         } catch (error) {
-          console.error('Erro ao processar a resposta JSON:', error); // Loga erros de processamento
+          console.error('Erro ao processar a resposta JSON:', error);
         }
       });
     };

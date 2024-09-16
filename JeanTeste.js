@@ -54,8 +54,10 @@ function traverseElementsToGetText(element) {
 }
 
 function getAllPosts() {
-  // Função para pegar todos os posts da página.
-  return [...document.querySelectorAll('div[role=feed] > div')].filter(post => post.querySelector('h3')); // Seleciona todos os posts que têm um título (h3).
+  // Seleciona todos os posts que contenham um elemento <h2>, <h3> ou <span> (para nomes de autores)
+  return [...document.querySelectorAll('div[role=feed] > div')].filter(post => 
+    post.querySelector('h2') || post.querySelector('h3') || post.querySelector('span')
+  );
 }
 
 function formatTopLevelComments(postId, topLevelComments = []) {
