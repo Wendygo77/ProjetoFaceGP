@@ -1,6 +1,6 @@
 //CODIDO FUNCIONAL - PRECISA APENAS DE MASTERIZAÇÃO
 const allContent = []; // Array para armazenar todas as postagens e comentários coletados.
-const maxPosts = 200; // Define o número máximo de postagens a serem processadas.
+const maxPosts = 40; // Define o número máximo de postagens a serem processadas.
 let processedPosts = 0; // Variável para contar quantas postagens foram processadas.
 
 function createCSV(data, fileName) {
