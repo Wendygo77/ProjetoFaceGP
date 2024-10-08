@@ -1,6 +1,4 @@
 const allContent = []; // Array para armazenar todas as postagens e comentários coletados.
-const maxPosts = 50; // Define o número máximo de postagens a serem processadas.
-let processedPosts = 0; // Variável para contar quantas postagens foram processadas.
 
 function createCSV(data, fileName) {
   const headers = [
@@ -78,7 +76,6 @@ function clickOnComments(post) {
   return 'Botão de comentários não encontrado';
 }
 
-
 function getAllPosts() {
   const feedPosts = document.querySelectorAll('div[role="feed"] > div');
   
@@ -127,7 +124,6 @@ function closeDialog() {
   }
 }
 
-
 function formatTopLevelComments(postId, topLevelComments = []) {
   return topLevelComments.map((c) => {
     const text = c?.comment.body.text;
@@ -171,32 +167,39 @@ function interceptRequests() {
 
       this.addEventListener('load', function () {
         if (requestBody && requestBody.includes('GroupsCometFeedRegularStoriesPaginationQuery')) {
+          console.log('Obtendo posts');
           const payload = this.responseText;
           const lines = payload.split('\n');
 
-          if (lines.length >= 3 && processedPosts < maxPosts) {
-            const firstPost = parsePostData(JSON.parse(lines[0]));
-            if (!allContent.some(item => item.postId === firstPost.post.postId)) {
-              allContent.push(firstPost.post);
-            }
-            addCommentsToAllContent(firstPost.topLevelComments);
-            processedPosts++;
+          const data1 = JSON.parse(lines[0]);
+          const firstPost = parseFirstLevelJson(data1);
+          console.log('Primeiro post:', firstPost.post.postText);
 
-            const secondPost = parsePostData(JSON.parse(lines[1]));
-            if (!allContent.some(item => item.postId === secondPost.post.postId)) {
-              allContent.push(secondPost.post);
-            }
-            addCommentsToAllContent(secondPost.topLevelComments);
-            processedPosts++;
+          const data2 = JSON.parse(lines[1]);
+          const secondPost = parseSecondLevelJson(data2);
+          console.log('Segundo post:', secondPost.post.postText);
 
-            const thirdPost = parsePostData(JSON.parse(lines[2]));
-            if (!allContent.some(item => item.postId === thirdPost.post.postId)) {
-              allContent.push(thirdPost.post);
-            }
-            addCommentsToAllContent(thirdPost.topLevelComments);
-            processedPosts++;
+          const data3 = JSON.parse(lines[2]);
+          const thirdPost = parseThirdLevelJson(data3);
+          console.log('Terceiro post:', thirdPost.post.postText);
+
+          if (!allContent.some(item => item.postId === firstPost.post.postId)) {
+            allContent.push(firstPost.post);
           }
+          addCommentsToAllContent(firstPost.topLevelComments);
+
+          if (!allContent.some(item => item.postId === secondPost.post.postId)) {
+            allContent.push(secondPost.post);
+          }
+          addCommentsToAllContent(secondPost.topLevelComments);
+
+          if (!allContent.some(item => item.postId === thirdPost.post.postId)) {
+            allContent.push(thirdPost.post);
+          }
+          addCommentsToAllContent(thirdPost.topLevelComments);
+
         } else if (requestBody && requestBody.includes('CometFocusedStoryViewUFIQuery')) {
+          console.log('Obtendo comentários');
           let data;
           try {
             data = JSON.parse(this.responseText);
@@ -204,11 +207,14 @@ function interceptRequests() {
             console.error('Erro ao analisar JSON:', e);
           }
 
-          if (data && data.data && processedPosts < maxPosts) {
+          if (data && data.data) {
             const postId = data.data.story_card?.post_id;
             const comments = data.data.feedback?.ufi_renderer?.feedback?.comment_list_renderer?.feedback
               ?.comment_rendering_instance_for_feed_location?.comments?.edges?.map(blah => {
                 const comment = blah.node;
+                const timeStuff = comment?.comment_action_links?.find(
+                  (f) => f?.__typename === 'XFBCommentTimeStampActionLink',
+                )?.comment;
                 return {
                   id: comment?.id,
                   commentId: comment?.id,
@@ -217,19 +223,118 @@ function interceptRequests() {
                   commentAuthorName: comment?.author?.name,
                   commentAuthorId: comment?.author?.id,
                   commentAuthorUrl: comment?.author?.url,
+                  timestamp: timeStuff?.created_time,
+                  commentUrl: timeStuff?.url,
                   email: getEmailFromText(comment?.body?.text),
                   firstName: comment?.author?.name?.split(' ')?.[0],
                   lastName: comment?.author?.name?.split(' ')?.[1],
                 };
               });
             addCommentsToAllContent(comments);
-            processedPosts++;
+            console.log('Comentários:', comments);
           }
         }
       });
     }
 
     return oldXHROpen.apply(this, arguments);
+  };
+}
+
+function parseFirstLevelJson(json) {
+  const actor = json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
+    ?.story?.comet_sections?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
+
+  const postText = json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
+    ?.story?.comet_sections?.message_container?.story?.message?.text;
+  const postId = json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
+    ?.story?.post_id;
+
+  const post = {
+    id: postId,
+    postId,
+    postText: postText || '',
+    postAuthor: actor?.name,
+    postAuthorId: actor?.id,
+    postAuthorUrl: actor?.url,
+    email: getEmailFromText(postText),
+    firstName: actor?.name?.split(' ')?.[0],
+    lastName: actor?.name?.split(' ')?.[1],
+  };
+
+  const topLevelComments = formatTopLevelComments(
+    postId,
+    json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.feedback
+      ?.story?.feedback_context?.interesting_top_level_comments,
+  );
+
+  return {
+    post,
+    topLevelComments,
+  };
+}
+
+function parseSecondLevelJson(json) {
+  const actor = json?.data?.node?.comet_sections?.content?.story?.comet_sections
+    ?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
+
+  const postText = json?.data?.node?.comet_sections?.content?.story?.comet_sections
+    ?.message_container?.story?.message?.text;
+  const postId = json?.data?.node?.comet_sections?.feedback?.story?.post_id;
+
+  const post = {
+    id: postId,
+    postId,
+    postText: postText || '',
+    postAuthor: actor?.name,
+    postAuthorId: actor?.id,
+    postAuthorUrl: actor?.url,
+    email: getEmailFromText(postText),
+    firstName: actor?.name?.split(' ')?.[0],
+    lastName: actor?.name?.split(' ')?.[1],
+  };
+
+  const topLevelComments = formatTopLevelComments(
+    postId,
+    json?.data?.node?.comet_sections?.feedback?.story?.feedback_context
+      ?.interesting_top_level_comments,
+  );
+
+  return {
+    post,
+    topLevelComments,
+  };
+}
+
+function parseThirdLevelJson(json) {
+  const actor = json?.data?.node?.comet_sections?.content?.story?.comet_sections
+    ?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
+
+  const postText = json?.data?.node?.comet_sections?.content?.story?.comet_sections
+    ?.message_container?.story?.message?.text;
+  const postId = json?.data?.node?.comet_sections?.feedback?.story?.post_id;
+
+  const post = {
+    id: postId,
+    postId,
+    postText: postText || '',
+    postAuthor: actor?.name,
+    postAuthorId: actor?.id,
+    postAuthorUrl: actor?.url,
+    email: getEmailFromText(postText),
+    firstName: actor?.name?.split(' ')?.[0],
+    lastName: actor?.name?.split(' ')?.[1],
+  };
+
+  const topLevelComments = formatTopLevelComments(
+    postId,
+    json?.data?.node?.comet_sections?.feedback?.story?.feedback_context
+      ?.interesting_top_level_comments,
+  );
+
+  return {
+    post,
+    topLevelComments,
   };
 }
 
@@ -241,9 +346,9 @@ async function run() {
   let i = 0;
   let scrolls = 1000;
 
-  while (i < posts.length && processedPosts < maxPosts) {
+  while (i < posts.length) {
     const post = posts[i];
-    console.log('Processando post', i + 1);
+    console.log(`Processando post ${i + 1}`);
     clickOnComments(post);
     await sleep(1000);
     closeDialog();
@@ -263,7 +368,7 @@ async function run() {
   createCSV(allContent, 'facebookGroupPostsAndComments.csv');
   console.log('Conteúdo coletado:', allContent);
   console.log('Concluído!');
-  console.log(`Dados de ${processedPosts} posts coletados.`);
+  console.log(`Dados de ${allContent.length} itens coletados.`);
 }
 
 await run();
