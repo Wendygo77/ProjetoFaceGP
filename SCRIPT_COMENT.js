@@ -1,4 +1,6 @@
 const allContent = []; // Array para armazenar todas as postagens e comentários coletados.
+const maxPosts = 50; // Número máximo de posts a serem processados
+let processedPosts = 0; // Contador de posts processados
 
 function createCSV(data, fileName) {
   const headers = [
@@ -13,10 +15,8 @@ function createCSV(data, fileName) {
       headers.map(header => {
         const value = row[header];
         if (value === null) return 'null';
-        if (typeof value === 'string') {
-          return `"${value.replace(/"/g, '""')}"`;
-        }
-        return value;
+        // Wrap all fields, including those without commas, in double quotes
+        return `"${(value + '').replace(/"/g, '""')}"`;
       }).join(','),
     ),
   ].join('\n');
@@ -39,19 +39,26 @@ function createCSV(data, fileName) {
 
 async function scrollDown() {
   const wrapper = window;
-  await new Promise((resolve, reject) => {
-    var totalHeight = 0;
-    var distance = 800;
+  return new Promise((resolve) => {
+    let lastScrollHeight = document.documentElement.scrollHeight;
+    let scrollAttempts = 0;
+    const maxScrollAttempts = 5;
 
-    var timer = setInterval(async () => {
-      wrapper.scrollBy(0, distance);
-      totalHeight += distance;
+    const scrollInterval = setInterval(() => {
+      wrapper.scrollTo(0, document.documentElement.scrollHeight);
+      scrollAttempts++;
 
-      clearInterval(timer);
-      resolve();
-    }, 400);
+      setTimeout(() => {
+        if (document.documentElement.scrollHeight > lastScrollHeight || scrollAttempts >= maxScrollAttempts) {
+          clearInterval(scrollInterval);
+          console.log('Scroll concluído ou limite de tentativas atingido');
+          resolve();
+        } else {
+          lastScrollHeight = document.documentElement.scrollHeight;
+        }
+      }, 1000);
+    }, 1500);
   });
-  await new Promise((resolve) => setTimeout(resolve, 1000));
 }
 
 function getEmailFromText(text) {
@@ -69,11 +76,11 @@ function clickOnComments(post) {
           ?.children?.[0];
       if (thingToClickToOpenComments) {
         thingToClickToOpenComments.click();
-        return 'Comentário clicado com sucesso';
+        return true;
       }
     }
   }
-  return 'Botão de comentários não encontrado';
+  return false;
 }
 
 function getAllPosts() {
@@ -118,7 +125,7 @@ function getAllPosts() {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 function closeDialog() {
-  const closeButton = document?.querySelector('div[aria-label="Fechar"]');
+  const closeButton = document?.querySelector('div[aria-label="Fechar"], div[aria-label="Close"]');
   if (closeButton) {
     closeButton.click();
   }
@@ -171,32 +178,19 @@ function interceptRequests() {
           const payload = this.responseText;
           const lines = payload.split('\n');
 
-          const data1 = JSON.parse(lines[0]);
-          const firstPost = parseFirstLevelJson(data1);
-          console.log('Primeiro post:', firstPost.post.postText);
-
-          const data2 = JSON.parse(lines[1]);
-          const secondPost = parseSecondLevelJson(data2);
-          console.log('Segundo post:', secondPost.post.postText);
-
-          const data3 = JSON.parse(lines[2]);
-          const thirdPost = parseThirdLevelJson(data3);
-          console.log('Terceiro post:', thirdPost.post.postText);
-
-          if (!allContent.some(item => item.postId === firstPost.post.postId)) {
-            allContent.push(firstPost.post);
-          }
-          addCommentsToAllContent(firstPost.topLevelComments);
-
-          if (!allContent.some(item => item.postId === secondPost.post.postId)) {
-            allContent.push(secondPost.post);
-          }
-          addCommentsToAllContent(secondPost.topLevelComments);
-
-          if (!allContent.some(item => item.postId === thirdPost.post.postId)) {
-            allContent.push(thirdPost.post);
-          }
-          addCommentsToAllContent(thirdPost.topLevelComments);
+          lines.forEach((line, index) => {
+            try {
+              const data = JSON.parse(line);
+              const post = parsePostData(data);
+              console.log(`Post ${index + 1}:`, post.post.postText);
+              if (!allContent.some(item => item.postId === post.post.postId)) {
+                allContent.push(post.post);
+              }
+              addCommentsToAllContent(post.topLevelComments);
+            } catch (e) {
+              console.error(`Erro ao processar linha ${index + 1}:`, e);
+            }
+          });
 
         } else if (requestBody && requestBody.includes('CometFocusedStoryViewUFIQuery')) {
           console.log('Obtendo comentários');
@@ -241,7 +235,7 @@ function interceptRequests() {
   };
 }
 
-function parseFirstLevelJson(json) {
+function parsePostData(json) {
   const actor = json?.data?.node?.group_feed?.edges?.[0]?.node?.comet_sections?.content
     ?.story?.comet_sections?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
 
@@ -274,94 +268,48 @@ function parseFirstLevelJson(json) {
   };
 }
 
-function parseSecondLevelJson(json) {
-  const actor = json?.data?.node?.comet_sections?.content?.story?.comet_sections
-    ?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
-
-  const postText = json?.data?.node?.comet_sections?.content?.story?.comet_sections
-    ?.message_container?.story?.message?.text;
-  const postId = json?.data?.node?.comet_sections?.feedback?.story?.post_id;
-
-  const post = {
-    id: postId,
-    postId,
-    postText: postText || '',
-    postAuthor: actor?.name,
-    postAuthorId: actor?.id,
-    postAuthorUrl: actor?.url,
-    email: getEmailFromText(postText),
-    firstName: actor?.name?.split(' ')?.[0],
-    lastName: actor?.name?.split(' ')?.[1],
-  };
-
-  const topLevelComments = formatTopLevelComments(
-    postId,
-    json?.data?.node?.comet_sections?.feedback?.story?.feedback_context
-      ?.interesting_top_level_comments,
-  );
-
-  return {
-    post,
-    topLevelComments,
-  };
-}
-
-function parseThirdLevelJson(json) {
-  const actor = json?.data?.node?.comet_sections?.content?.story?.comet_sections
-    ?.context_layout?.story?.comet_sections?.actor_photo?.story?.actors?.[0];
-
-  const postText = json?.data?.node?.comet_sections?.content?.story?.comet_sections
-    ?.message_container?.story?.message?.text;
-  const postId = json?.data?.node?.comet_sections?.feedback?.story?.post_id;
-
-  const post = {
-    id: postId,
-    postId,
-    postText: postText || '',
-    postAuthor: actor?.name,
-    postAuthorId: actor?.id,
-    postAuthorUrl: actor?.url,
-    email: getEmailFromText(postText),
-    firstName: actor?.name?.split(' ')?.[0],
-    lastName: actor?.name?.split(' ')?.[1],
-  };
-
-  const topLevelComments = formatTopLevelComments(
-    postId,
-    json?.data?.node?.comet_sections?.feedback?.story?.feedback_context
-      ?.interesting_top_level_comments,
-  );
-
-  return {
-    post,
-    topLevelComments,
-  };
-}
-
 async function run() {
   interceptRequests();
   console.log('Iniciando...');
-  let posts = getAllPosts();
-  console.log('Número de posts:', posts.length);
-  let i = 0;
-  let scrolls = 1000;
-
-  while (i < posts.length) {
-    const post = posts[i];
-    console.log(`Processando post ${i + 1}`);
-    clickOnComments(post);
-    await sleep(1000);
-    closeDialog();
-
-    i++;
-    if (scrolls > 0) {
-      await scrollDown();
-      scrolls--;
-      console.log('Rolagens restantes:', scrolls);
-      console.log('Posts antigos:', posts.length);
-      const currentPosts = getAllPosts();
-      console.log('Posts atuais:', currentPosts.length);
-      posts = currentPosts;
+  
+  let lastPostCount = 0;
+  let noNewPostsCount = 0;
+  const maxNoNewPosts = 3;
+  
+  while (processedPosts < maxPosts) {
+    await scrollDown();
+    let posts = getAllPosts();
+    console.log('Número de posts:', posts.length);
+    
+    if (posts.length === lastPostCount) {
+      noNewPostsCount++;
+      if (noNewPostsCount >= maxNoNewPosts) {
+        console.log('Nenhum novo post carregado após várias tentativas. Finalizando...');
+        break;
+      }
+    } else {
+      noNewPostsCount = 0;
+    }
+    
+    lastPostCount = posts.length;
+    
+    for (let i = 0; i < posts.length && processedPosts < maxPosts; i++) {
+      const post = posts[i];
+      console.log(`Processando post ${processedPosts + 1}`);
+      
+      if (clickOnComments(post)) {
+        await sleep(3000);
+        closeDialog();
+      }
+      
+      processedPosts++;
+      
+      if (processedPosts % 5 === 0) {
+        await scrollDown();
+        posts = getAllPosts();
+      }
+      
+      await sleep(2000);
     }
   }
 
